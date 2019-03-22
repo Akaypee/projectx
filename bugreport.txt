@@ -1,0 +1,49 @@
+date/time          : 2019-02-18, 10:39:42, 343ms
+computer name      : LAPTOP-SJT2T881
+user name          : Akay-pee
+operating system   : Windows 8 x64 build 9200
+system language    : English
+system up time     : 3 days 4 hours
+program up time    : 54 minutes 38 seconds
+processors         : 8x Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz
+physical memory    : 4380/8075 MB (free/total)
+free disk space    : (C:) 84.25 GB
+display mode       : 1536x864, 32 bit
+process id         : $1918
+allocated memory   : 111.59 MB
+largest free block : 131029.99 GB
+executable         : heidisql.exe
+exec. date/time    : 2015-08-08 17:43
+version            : 9.3.0.4984
+compiled with      : Delphi XE5
+madExcept version  : 4.0.8.1
+callstack crc      : $b92117a1, $5359b6b8, $5359b6b8
+exception number   : 1
+exception class    : EAccessViolation
+exception message  : Access violation at address 00000000008F3C93 in module 'heidisql.exe'. Read of address FFFFFFFFFFFFFFFF.
+
+main thread ($33b4):
+008f3c93 heidisql.exe VirtualTrees   28288   +7 TBaseVirtualTree.GetNodeData
+00c384df heidisql.exe Main            7675   +7 TMainForm.DBtreeInitNode
+008e0745 heidisql.exe VirtualTrees   20191   +2 TBaseVirtualTree.DoInitNode
+008e6b30 heidisql.exe VirtualTrees   22648  +10 TBaseVirtualTree.InitNode
+008f0c60 heidisql.exe VirtualTrees   26591   +6 TBaseVirtualTree.GetDisplayRect
+008f5c61 heidisql.exe VirtualTrees   29439   +3 TBaseVirtualTree.InvalidateNode
+00902c69 heidisql.exe VirtualTrees   34134   +1 TCustomVirtualStringTree.InvalidateNode
+008dfae2 heidisql.exe VirtualTrees   19785  +29 TBaseVirtualTree.DoFocusNode
+008e634e heidisql.exe VirtualTrees   22457 +242 TBaseVirtualTree.HandleMouseDown
+008d9e55 heidisql.exe VirtualTrees   17178   +6 TBaseVirtualTree.WMLButtonDown
+0040cb1e heidisql.exe System                    TObject.Dispatch
+008ed468 heidisql.exe VirtualTrees   25260  +19 TBaseVirtualTree.WndProc
+00699d0a heidisql.exe Vcl.Controls              TWinControl.MainWndProc
+005da643 heidisql.exe System.Classes            StdWndProc
+7ffb7a33 user32.dll                             DispatchMessageW
+00812f1f heidisql.exe Vcl.Forms                 TApplication.ProcessMessage
+00812f93 heidisql.exe Vcl.Forms                 TApplication.HandleMessage
+0081347f heidisql.exe Vcl.Forms                 TApplication.Run
+00c6b647 heidisql.exe heidisql          78  +24 initialization
+7ffb79c5 KERNEL32.DLL                           BaseThreadInitThunk
+7ffb7c68 ntdll.dll                              RtlUserThreadStart
+
+hotspot lovely add login
+
