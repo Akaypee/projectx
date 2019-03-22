@@ -1,0 +1,1 @@
+$(function(d){d(".iframe-ratio").each(function(e,f){var a=d(f);a.attr("id","iframe_container_"+e);new easyXDM.Socket({remote:a.data("src"),container:"iframe_container_"+e,onMessage:function(b,c){if(isNaN(b))switch(c=JSON.parse(b),c.type){case "height":a.height(c.height+"px");break;default:console.log("Did not understand Message: "+b)}else a.height(b+"px")}})})});

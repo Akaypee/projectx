@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block body%}
+<h1> Welcome to child template </h1>
+
+{% set m = get_flashed_messages(with_categories=True) %}
+{% for i in m: %}
+{{ i }}
+{% endfor %}
+{% endblock %}
+
+{% block includedfiles %}
+{{ super() }}
+
+{% endblock %}

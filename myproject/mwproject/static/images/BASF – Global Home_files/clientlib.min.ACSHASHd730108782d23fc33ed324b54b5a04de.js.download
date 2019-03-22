@@ -1,0 +1,1 @@
+(function(){var b=document.body,a=document.head.querySelector("meta[name\x3ddesign-modifiers]"),c=document.head.querySelector("meta[name\x3dtheme]");b.classList.contains("theme-default")&&b.classList.remove("theme-default");b.classList.add(c.content);a.content&&0<a.content.length&&a.content.trim().split(" ").forEach(function(a){b.classList.add(a)})})();

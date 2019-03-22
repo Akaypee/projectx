@@ -1,0 +1,1 @@
+function onYouTubeIframeAPIReady(){var a=function(a,b,c,d){this.instance=new YT.Player(a,{width:c,height:d,videoId:b})};a.prototype.play=function(){this.instance.playVideo()};$("body").trigger("youtube-load-complete",a)}$.getScript("https://www.youtube.com/iframe_api");

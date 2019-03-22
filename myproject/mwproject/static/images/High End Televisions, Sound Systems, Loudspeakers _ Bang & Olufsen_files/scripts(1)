@@ -1,0 +1,2209 @@
+/**
+* jquery-match-height master by @liabru
+* http://brm.io/jquery-match-height/
+* License: MIT
+*/
+
+;(function(factory) { // eslint-disable-line no-extra-semi
+    'use strict';
+    if (typeof define === 'function' && define.amd) {
+        // AMD
+        define(['jquery'], factory);
+    } else if (typeof module !== 'undefined' && module.exports) {
+        // CommonJS
+        module.exports = factory(require('jquery'));
+    } else {
+        // Global
+        factory(jQuery);
+    }
+})(function($) {
+    /*
+    *  internal
+    */
+
+    var _previousResizeWidth = -1,
+        _updateTimeout = -1;
+
+    /*
+    *  _parse
+    *  value parse utility function
+    */
+
+    var _parse = function(value) {
+        // parse value and convert NaN to 0
+        return parseFloat(value) || 0;
+    };
+
+    /*
+    *  _rows
+    *  utility function returns array of jQuery selections representing each row
+    *  (as displayed after float wrapping applied by browser)
+    */
+
+    var _rows = function(elements) {
+        var tolerance = 1,
+            $elements = $(elements),
+            lastTop = null,
+            rows = [];
+
+        // group elements by their top position
+        $elements.each(function(){
+            var $that = $(this),
+                top = $that.offset().top - _parse($that.css('margin-top')),
+                lastRow = rows.length > 0 ? rows[rows.length - 1] : null;
+
+            if (lastRow === null) {
+                // first item on the row, so just push it
+                rows.push($that);
+            } else {
+                // if the row top is the same, add to the row group
+                if (Math.floor(Math.abs(lastTop - top)) <= tolerance) {
+                    rows[rows.length - 1] = lastRow.add($that);
+                } else {
+                    // otherwise start a new row group
+                    rows.push($that);
+                }
+            }
+
+            // keep track of the last row top
+            lastTop = top;
+        });
+
+        return rows;
+    };
+
+    /*
+    *  _parseOptions
+    *  handle plugin options
+    */
+
+    var _parseOptions = function(options) {
+        var opts = {
+            byRow: true,
+            property: 'height',
+            target: null,
+            remove: false
+        };
+
+        if (typeof options === 'object') {
+            return $.extend(opts, options);
+        }
+
+        if (typeof options === 'boolean') {
+            opts.byRow = options;
+        } else if (options === 'remove') {
+            opts.remove = true;
+        }
+
+        return opts;
+    };
+
+    /*
+    *  matchHeight
+    *  plugin definition
+    */
+
+    var matchHeight = $.fn.matchHeight = function(options) {
+        var opts = _parseOptions(options);
+
+        // handle remove
+        if (opts.remove) {
+            var that = this;
+
+            // remove fixed height from all selected elements
+            this.css(opts.property, '');
+
+            // remove selected elements from all groups
+            $.each(matchHeight._groups, function(key, group) {
+                group.elements = group.elements.not(that);
+            });
+
+            // TODO: cleanup empty groups
+
+            return this;
+        }
+
+        if (this.length <= 1 && !opts.target) {
+            return this;
+        }
+
+        // keep track of this group so we can re-apply later on load and resize events
+        matchHeight._groups.push({
+            elements: this,
+            options: opts
+        });
+
+        // match each element's height to the tallest element in the selection
+        matchHeight._apply(this, opts);
+
+        return this;
+    };
+
+    /*
+    *  plugin global options
+    */
+
+    matchHeight.version = 'master';
+    matchHeight._groups = [];
+    matchHeight._throttle = 80;
+    matchHeight._maintainScroll = false;
+    matchHeight._beforeUpdate = null;
+    matchHeight._afterUpdate = null;
+    matchHeight._rows = _rows;
+    matchHeight._parse = _parse;
+    matchHeight._parseOptions = _parseOptions;
+
+    /*
+    *  matchHeight._apply
+    *  apply matchHeight to given elements
+    */
+
+    matchHeight._apply = function(elements, options) {
+        var opts = _parseOptions(options),
+            $elements = $(elements),
+            rows = [$elements];
+
+        // take note of scroll position
+        var scrollTop = $(window).scrollTop(),
+            htmlHeight = $('html').outerHeight(true);
+
+        // get hidden parents
+        var $hiddenParents = $elements.parents().filter(':hidden');
+
+        // cache the original inline style
+        $hiddenParents.each(function() {
+            var $that = $(this);
+            $that.data('style-cache', $that.attr('style'));
+        });
+
+        // temporarily must force hidden parents visible
+        $hiddenParents.css('display', 'block');
+
+        // get rows if using byRow, otherwise assume one row
+        if (opts.byRow && !opts.target) {
+
+            // must first force an arbitrary equal height so floating elements break evenly
+            $elements.each(function() {
+                var $that = $(this),
+                    display = $that.css('display');
+
+                // temporarily force a usable display value
+                if (display !== 'inline-block' && display !== 'flex' && display !== 'inline-flex') {
+                    display = 'block';
+                }
+
+                // cache the original inline style
+                $that.data('style-cache', $that.attr('style'));
+
+                $that.css({
+                    'display': display,
+                    'padding-top': '0',
+                    'padding-bottom': '0',
+                    'margin-top': '0',
+                    'margin-bottom': '0',
+                    'border-top-width': '0',
+                    'border-bottom-width': '0',
+                    'height': '100px',
+                    'overflow': 'hidden'
+                });
+            });
+
+            // get the array of rows (based on element top position)
+            rows = _rows($elements);
+
+            // revert original inline styles
+            $elements.each(function() {
+                var $that = $(this);
+                $that.attr('style', $that.data('style-cache') || '');
+            });
+        }
+
+        $.each(rows, function(key, row) {
+            var $row = $(row),
+                targetHeight = 0;
+
+            if (!opts.target) {
+                // skip apply to rows with only one item
+                if (opts.byRow && $row.length <= 1) {
+                    $row.css(opts.property, '');
+                    return;
+                }
+
+                // iterate the row and find the max height
+                $row.each(function(){
+                    var $that = $(this),
+                        style = $that.attr('style'),
+                        display = $that.css('display');
+
+                    // temporarily force a usable display value
+                    if (display !== 'inline-block' && display !== 'flex' && display !== 'inline-flex') {
+                        display = 'block';
+                    }
+
+                    // ensure we get the correct actual height (and not a previously set height value)
+                    var css = { 'display': display };
+                    css[opts.property] = '';
+                    $that.css(css);
+
+                    // find the max height (including padding, but not margin)
+                    if ($that.outerHeight(false) > targetHeight) {
+                        targetHeight = $that.outerHeight(false);
+                    }
+
+                    // revert styles
+                    if (style) {
+                        $that.attr('style', style);
+                    } else {
+                        $that.css('display', '');
+                    }
+                });
+            } else {
+                // if target set, use the height of the target element
+                targetHeight = opts.target.outerHeight(false);
+            }
+
+            // iterate the row and apply the height to all elements
+            $row.each(function(){
+                var $that = $(this),
+                    verticalPadding = 0;
+
+                // don't apply to a target
+                if (opts.target && $that.is(opts.target)) {
+                    return;
+                }
+
+                // handle padding and border correctly (required when not using border-box)
+                if ($that.css('box-sizing') !== 'border-box') {
+                    verticalPadding += _parse($that.css('border-top-width')) + _parse($that.css('border-bottom-width'));
+                    verticalPadding += _parse($that.css('padding-top')) + _parse($that.css('padding-bottom'));
+                }
+
+                // set the height (accounting for padding and border)
+                $that.css(opts.property, (targetHeight - verticalPadding) + 'px');
+            });
+        });
+
+        // revert hidden parents
+        $hiddenParents.each(function() {
+            var $that = $(this);
+            $that.attr('style', $that.data('style-cache') || null);
+        });
+
+        // restore scroll position if enabled
+        if (matchHeight._maintainScroll) {
+            $(window).scrollTop((scrollTop / htmlHeight) * $('html').outerHeight(true));
+        }
+
+        return this;
+    };
+
+    /*
+    *  matchHeight._applyDataApi
+    *  applies matchHeight to all elements with a data-match-height attribute
+    */
+
+    matchHeight._applyDataApi = function() {
+        var groups = {};
+
+        // generate groups by their groupId set by elements using data-match-height
+        $('[data-match-height], [data-mh]').each(function() {
+            var $this = $(this),
+                groupId = $this.attr('data-mh') || $this.attr('data-match-height');
+
+            if (groupId in groups) {
+                groups[groupId] = groups[groupId].add($this);
+            } else {
+                groups[groupId] = $this;
+            }
+        });
+
+        // apply matchHeight to each group
+        $.each(groups, function() {
+            this.matchHeight(true);
+        });
+    };
+
+    /*
+    *  matchHeight._update
+    *  updates matchHeight on all current groups with their correct options
+    */
+
+    var _update = function(event) {
+        if (matchHeight._beforeUpdate) {
+            matchHeight._beforeUpdate(event, matchHeight._groups);
+        }
+
+        $.each(matchHeight._groups, function() {
+            matchHeight._apply(this.elements, this.options);
+        });
+
+        if (matchHeight._afterUpdate) {
+            matchHeight._afterUpdate(event, matchHeight._groups);
+        }
+    };
+
+    matchHeight._update = function(throttle, event) {
+        // prevent update if fired from a resize event
+        // where the viewport width hasn't actually changed
+        // fixes an event looping bug in IE8
+        if (event && event.type === 'resize') {
+            var windowWidth = $(window).width();
+            if (windowWidth === _previousResizeWidth) {
+                return;
+            }
+            _previousResizeWidth = windowWidth;
+        }
+
+        // throttle updates
+        if (!throttle) {
+            _update(event);
+        } else if (_updateTimeout === -1) {
+            _updateTimeout = setTimeout(function() {
+                _update(event);
+                _updateTimeout = -1;
+            }, matchHeight._throttle);
+        }
+    };
+
+    /*
+    *  bind events
+    */
+
+    // apply on DOM ready event
+    $(matchHeight._applyDataApi);
+
+    // update heights on load and resize events
+    $(window).bind('load', function(event) {
+        matchHeight._update(false, event);
+    });
+
+    // throttled update heights on resize events
+    $(window).bind('resize orientationchange', function(event) {
+        matchHeight._update(true, event);
+    });
+
+});
+
+/**
+ * bootbox.js v4.4.0
+ *
+ * http://bootboxjs.com/license.txt
+ */
+! function (a, b) {
+    "use strict";
+    "function" == typeof define && define.amd ? define(["jquery"], b) : "object" == typeof exports ? module.exports = b(require("jquery")) : a.bootbox = b(a.jQuery)
+}(this, function a(b, c) {
+    "use strict";
+
+    function d(a) {
+        var b = q[o.locale];
+        return b ? b[a] : q.en[a]
+    }
+
+    function e(a, c, d) {
+        a.stopPropagation(), a.preventDefault();
+        var e = b.isFunction(d) && d.call(c, a) === !1;
+        e || c.modal("hide")
+    }
+
+    function f(a) {
+        var b, c = 0;
+        for (b in a) c++;
+        return c
+    }
+
+    function g(a, c) {
+        var d = 0;
+        b.each(a, function (a, b) {
+            c(a, b, d++)
+        })
+    }
+
+    function h(a) {
+        var c, d;
+        if ("object" != typeof a) throw new Error("Please supply an object of options");
+        if (!a.message) throw new Error("Please specify a message");
+        return a = b.extend({}, o, a), a.buttons || (a.buttons = {}), c = a.buttons, d = f(c), g(c, function (a, e, f) {
+            if (b.isFunction(e) && (e = c[a] = {
+                callback: e
+            }), "object" !== b.type(e)) throw new Error("button with key " + a + " must be an object");
+            e.label || (e.label = a), e.className || (e.className = 2 >= d && f === d - 1 ? "btn-primary" : "btn-default")
+        }), a
+    }
+
+    function i(a, b) {
+        var c = a.length,
+            d = {};
+        if (1 > c || c > 2) throw new Error("Invalid argument length");
+        return 2 === c || "string" == typeof a[0] ? (d[b[0]] = a[0], d[b[1]] = a[1]) : d = a[0], d
+    }
+
+    function j(a, c, d) {
+        return b.extend(!0, {}, a, i(c, d))
+    }
+
+    function k(a, b, c, d) {
+        var e = {
+            className: "bootbox-" + a,
+            buttons: l.apply(null, b)
+        };
+        return m(j(e, d, c), b)
+    }
+
+    function l() {
+        for (var a = {}, b = 0, c = arguments.length; c > b; b++) {
+            var e = arguments[b],
+                f = e.toLowerCase(),
+                g = e.toUpperCase();
+            a[f] = {
+                label: d(g)
+            }
+        }
+        return a
+    }
+
+    function m(a, b) {
+        var d = {};
+        return g(b, function (a, b) {
+            d[b] = !0
+        }), g(a.buttons, function (a) {
+            if (d[a] === c) throw new Error("button key " + a + " is not allowed (options are " + b.join("\n") + ")")
+        }), a
+    }
+    var n = {
+        dialog: "<div class='bootbox modal' tabindex='-1' role='dialog'><div class='modal-dialog'><div class='modal-content'><div class='modal-body'><div class='bootbox-body small'></div></div></div></div></div>",
+        header: "<div class='modal-header'><h4 class='modal-title'></h4></div>",
+        footer: "<div class='modal-footer'></div>",
+        closeButton: "<button type='button' class='bootbox-close-button close' data-dismiss='modal' aria-hidden='true'>&times;</button>",
+        form: "<form class='bootbox-form'></form>",
+        inputs: {
+            text: "<input class='bootbox-input bootbox-input-text form-control' autocomplete=off type=text />",
+            textarea: "<textarea class='bootbox-input bootbox-input-textarea form-control'></textarea>",
+            email: "<input class='bootbox-input bootbox-input-email form-control' autocomplete='off' type='email' />",
+            select: "<select class='bootbox-input bootbox-input-select form-control'></select>",
+            checkbox: "<div class='checkbox'><label><input class='bootbox-input bootbox-input-checkbox' type='checkbox' /></label></div>",
+            date: "<input class='bootbox-input bootbox-input-date form-control' autocomplete=off type='date' />",
+            time: "<input class='bootbox-input bootbox-input-time form-control' autocomplete=off type='time' />",
+            number: "<input class='bootbox-input bootbox-input-number form-control' autocomplete=off type='number' />",
+            password: "<input class='bootbox-input bootbox-input-password form-control' autocomplete='off' type='password' />"
+        }
+    },
+        o = {
+            locale: "en",
+            backdrop: "static",
+            animate: !0,
+            className: null,
+            closeButton: !0,
+            show: !0,
+            container: "body"
+        },
+        p = {};
+    p.alert = function () {
+        var a;
+        if (a = k("alert", ["ok"], ["message", "callback"], arguments), a.callback && !b.isFunction(a.callback)) throw new Error("alert requires callback property to be a function when provided");
+        return a.buttons.ok.callback = a.onEscape = function () {
+            return b.isFunction(a.callback) ? a.callback.call(this) : !0
+        }, p.dialog(a)
+    }, p.confirm = function () {
+        var a;
+        if (a = k("confirm", ["cancel", "confirm"], ["message", "callback"], arguments), a.buttons.cancel.callback = a.onEscape = function () {
+                return a.callback.call(this, !1)
+        }, a.buttons.confirm.callback = function () {
+                return a.callback.call(this, !0)
+        }, !b.isFunction(a.callback)) throw new Error("confirm requires a callback");
+        return p.dialog(a)
+    }, p.prompt = function () {
+        var a, d, e, f, h, i, k;
+        if (f = b(n.form), d = {
+            className: "bootbox-prompt",
+            buttons: l("cancel", "confirm"),
+            value: "",
+            inputType: "text"
+        }, a = m(j(d, arguments, ["title", "callback"]), ["cancel", "confirm"]), i = a.show === c ? !0 : a.show, a.message = f, a.buttons.cancel.callback = a.onEscape = function () {
+                return a.callback.call(this, null)
+        }, a.buttons.confirm.callback = function () {
+                var c;
+                switch (a.inputType) {
+                    case "text":
+                    case "textarea":
+                    case "email":
+                    case "select":
+                    case "date":
+                    case "time":
+                    case "number":
+                    case "password":
+                        c = h.val();
+                        break;
+                    case "checkbox":
+                        var d = h.find("input:checked");
+                        c = [], g(d, function (a, d) {
+                            c.push(b(d).val())
+        })
+        }
+                return a.callback.call(this, c)
+        }, a.show = !1, !a.title) throw new Error("prompt requires a title");
+        if (!b.isFunction(a.callback)) throw new Error("prompt requires a callback");
+        if (!n.inputs[a.inputType]) throw new Error("invalid prompt type");
+        switch (h = b(n.inputs[a.inputType]), a.inputType) {
+            case "text":
+            case "textarea":
+            case "email":
+            case "date":
+            case "time":
+            case "number":
+            case "password":
+                h.val(a.value);
+                break;
+            case "select":
+                var o = {};
+                if (k = a.inputOptions || [], !b.isArray(k)) throw new Error("Please pass an array of input options");
+                if (!k.length) throw new Error("prompt with select requires options");
+                g(k, function (a, d) {
+                    var e = h;
+                    if (d.value === c || d.text === c) throw new Error("given options in wrong format");
+                    d.group && (o[d.group] || (o[d.group] = b("<optgroup/>").attr("label", d.group)), e = o[d.group]), e.append("<option value='" + d.value + "'>" + d.text + "</option>")
+                }), g(o, function (a, b) {
+                    h.append(b)
+                }), h.val(a.value);
+                break;
+            case "checkbox":
+                var q = b.isArray(a.value) ? a.value : [a.value];
+                if (k = a.inputOptions || [], !k.length) throw new Error("prompt with checkbox requires options");
+                if (!k[0].value || !k[0].text) throw new Error("given options in wrong format");
+                h = b("<div/>"), g(k, function (c, d) {
+                    var e = b(n.inputs[a.inputType]);
+                    e.find("input").attr("value", d.value), e.find("label").append(d.text), g(q, function (a, b) {
+                        b === d.value && e.find("input").prop("checked", !0)
+                    }), h.append(e)
+                })
+        }
+        return a.placeholder && h.attr("placeholder", a.placeholder), a.pattern && h.attr("pattern", a.pattern), a.maxlength && h.attr("maxlength", a.maxlength), f.append(h), f.on("submit", function (a) {
+            a.preventDefault(), a.stopPropagation(), e.find(".btn-primary").click()
+        }), e = p.dialog(a), e.off("shown.bs.modal"), e.on("shown.bs.modal", function () {
+            h.focus()
+        }), i === !0 && e.modal("show"), e
+    }, p.dialog = function (a) {
+        a = h(a);
+        var d = b(n.dialog),
+            f = d.find(".modal-dialog"),
+            i = d.find(".modal-body"),
+            j = a.buttons,
+            k = "",
+            l = {
+                onEscape: a.onEscape
+            };
+        if (b.fn.modal === c) throw new Error("$.fn.modal is not defined; please double check you have included the Bootstrap JavaScript library. See http://getbootstrap.com/javascript/ for more details.");
+        if (g(j, function (a, b) {
+                k += "<button data-bb-handler='" + a + "' type='button' class='button solid small'>" + b.label + "</button>", l[a] = b.callback
+        }), i.find(".bootbox-body").html(a.message), a.animate === !0 && d.addClass("fade"), a.className && d.addClass(a.className), "large" === a.size ? f.addClass("modal-lg") : "small" === a.size && f.addClass("modal-sm"), a.title && i.before(n.header), a.closeButton) {
+            var m = b(n.closeButton);
+            a.title ? d.find(".modal-header").prepend(m) : m.css("margin-top", "-10px").prependTo(i)
+        }
+        return a.title && d.find(".modal-title").html(a.title), k.length && (i.after(n.footer), d.find(".modal-footer").html(k)), d.on("hidden.bs.modal", function (a) {
+            a.target === this && d.remove()
+        }), d.on("shown.bs.modal", function () {
+            d.find(".btn-primary:first").focus()
+        }), "static" !== a.backdrop && d.on("click.dismiss.bs.modal", function (a) {
+            d.children(".modal-backdrop").length && (a.currentTarget = d.children(".modal-backdrop").get(0)), a.target === a.currentTarget && d.trigger("escape.close.bb")
+        }), d.on("escape.close.bb", function (a) {
+            l.onEscape && e(a, d, l.onEscape)
+        }), d.on("click", ".modal-footer button", function (a) {
+            var c = b(this).data("bb-handler");
+            e(a, d, l[c])
+        }), d.on("click", ".bootbox-close-button", function (a) {
+            e(a, d, l.onEscape)
+        }), d.on("keyup", function (a) {
+            27 === a.which && d.trigger("escape.close.bb")
+        }), b(a.container).append(d), d.modal({
+            backdrop: a.backdrop ? "static" : !1,
+            keyboard: !1,
+            show: !1
+        }), a.show && d.modal("show"), d
+    }, p.setDefaults = function () {
+        var a = {};
+        2 === arguments.length ? a[arguments[0]] = arguments[1] : a = arguments[0], b.extend(o, a)
+    }, p.hideAll = function () {
+        return b(".bootbox").modal("hide"), p
+    };
+    var q = {
+        bg_BG: {
+            OK: "Ок",
+            CANCEL: "Отказ",
+            CONFIRM: "Потвърждавам"
+        },
+        br: {
+            OK: "OK",
+            CANCEL: "Cancelar",
+            CONFIRM: "Sim"
+        },
+        cs: {
+            OK: "OK",
+            CANCEL: "Zrušit",
+            CONFIRM: "Potvrdit"
+        },
+        da: {
+            OK: "OK",
+            CANCEL: "Annuller",
+            CONFIRM: "Accepter"
+        },
+        de: {
+            OK: "OK",
+            CANCEL: "Abbrechen",
+            CONFIRM: "Akzeptieren"
+        },
+        el: {
+            OK: "Εντάξει",
+            CANCEL: "Ακύρωση",
+            CONFIRM: "Επιβεβαίωση"
+        },
+        en: {
+            OK: "OK",
+            CANCEL: "Cancel",
+            CONFIRM: "OK"
+        },
+        es: {
+            OK: "OK",
+            CANCEL: "Cancelar",
+            CONFIRM: "Aceptar"
+        },
+        et: {
+            OK: "OK",
+            CANCEL: "Katkesta",
+            CONFIRM: "OK"
+        },
+        fa: {
+            OK: "قبول",
+            CANCEL: "لغو",
+            CONFIRM: "تایید"
+        },
+        fi: {
+            OK: "OK",
+            CANCEL: "Peruuta",
+            CONFIRM: "OK"
+        },
+        fr: {
+            OK: "OK",
+            CANCEL: "Annuler",
+            CONFIRM: "D'accord"
+        },
+        he: {
+            OK: "אישור",
+            CANCEL: "ביטול",
+            CONFIRM: "אישור"
+        },
+        hu: {
+            OK: "OK",
+            CANCEL: "Mégsem",
+            CONFIRM: "Megerősít"
+        },
+        hr: {
+            OK: "OK",
+            CANCEL: "Odustani",
+            CONFIRM: "Potvrdi"
+        },
+        id: {
+            OK: "OK",
+            CANCEL: "Batal",
+            CONFIRM: "OK"
+        },
+        it: {
+            OK: "OK",
+            CANCEL: "Annulla",
+            CONFIRM: "Conferma"
+        },
+        ja: {
+            OK: "OK",
+            CANCEL: "キャンセル",
+            CONFIRM: "確認"
+        },
+        lt: {
+            OK: "Gerai",
+            CANCEL: "Atšaukti",
+            CONFIRM: "Patvirtinti"
+        },
+        lv: {
+            OK: "Labi",
+            CANCEL: "Atcelt",
+            CONFIRM: "Apstiprināt"
+        },
+        nl: {
+            OK: "OK",
+            CANCEL: "Annuleren",
+            CONFIRM: "Accepteren"
+        },
+        no: {
+            OK: "OK",
+            CANCEL: "Avbryt",
+            CONFIRM: "OK"
+        },
+        pl: {
+            OK: "OK",
+            CANCEL: "Anuluj",
+            CONFIRM: "Potwierdź"
+        },
+        pt: {
+            OK: "OK",
+            CANCEL: "Cancelar",
+            CONFIRM: "Confirmar"
+        },
+        ru: {
+            OK: "OK",
+            CANCEL: "Отмена",
+            CONFIRM: "Применить"
+        },
+        sq: {
+            OK: "OK",
+            CANCEL: "Anulo",
+            CONFIRM: "Prano"
+        },
+        sv: {
+            OK: "OK",
+            CANCEL: "Avbryt",
+            CONFIRM: "OK"
+        },
+        th: {
+            OK: "ตกลง",
+            CANCEL: "ยกเลิก",
+            CONFIRM: "ยืนยัน"
+        },
+        tr: {
+            OK: "Tamam",
+            CANCEL: "İptal",
+            CONFIRM: "Onayla"
+        },
+        zh_CN: {
+            OK: "OK",
+            CANCEL: "取消",
+            CONFIRM: "确认"
+        },
+        zh_TW: {
+            OK: "OK",
+            CANCEL: "取消",
+            CONFIRM: "確認"
+        }
+    };
+    return p.addLocale = function (a, c) {
+        return b.each(["OK", "CANCEL", "CONFIRM"], function (a, b) {
+            if (!c[b]) throw new Error("Please supply a translation for '" + b + "'")
+        }), q[a] = {
+            OK: c.OK,
+            CANCEL: c.CANCEL,
+            CONFIRM: c.CONFIRM
+        }, p
+    }, p.removeLocale = function (a) {
+        return delete q[a], p
+    }, p.setLocale = function (a) {
+        return p.setDefaults("locale", a)
+    }, p.init = function (c) {
+        return a(c || b)
+    }, p
+});
+/*!
+Waypoints Sticky Element Shortcut - 4.0.0
+Copyright © 2011-2015 Caleb Troughton
+Licensed under the MIT license.
+https://github.com/imakewebthings/waypoints/blog/master/licenses.txt
+*/
+!function(){"use strict";function t(s){this.options=e.extend({},i.defaults,t.defaults,s),this.element=this.options.element,this.$element=e(this.element),this.createWrapper(),this.createWaypoint()}var e=window.jQuery,i=window.Waypoint;t.prototype.createWaypoint=function(){var t=this.options.handler;this.waypoint=new i(e.extend({},this.options,{element:this.wrapper,handler:e.proxy(function(e){var i=this.options.direction.indexOf(e)>-1,s=i?this.$element.outerHeight(!0):"";this.$wrapper.height(s),this.$element.toggleClass(this.options.stuckClass,i),t&&t.call(this,e)},this)}))},t.prototype.createWrapper=function(){this.options.wrapper&&this.$element.wrap(this.options.wrapper),this.$wrapper=this.$element.parent(),this.wrapper=this.$wrapper[0]},t.prototype.destroy=function(){this.$element.parent()[0]===this.wrapper&&(this.waypoint.destroy(),this.$element.removeClass(this.options.stuckClass),this.options.wrapper&&this.$element.unwrap())},t.defaults={wrapper:'<div class="sticky-wrapper" />',stuckClass:"stuck",direction:"down right"},i.Sticky=t}();
+app.controller('beo-accordion', ['$scope', '$element', 'UtilsService', function ($scope, $element, UtilsService) {
+    $scope.slides = $element.find('.accordion-slide');
+    $scope.previousVideo = null;
+}]);
+app.controller('beo-store-finder', ['$scope', function ($scope) {
+    $scope.noresults = false;
+
+    // map
+    $scope.map = null;
+    $scope.mapOptions = {};
+    $scope.isMapOpen = false;
+    $scope.isInfoWindowOpen = false;
+    $scope.searchCoords;
+    $scope.isGeolocationBlocked;
+    $scope.myGeolocation;
+    $scope.selectedMarker;
+
+    // stores
+    $scope.activeStoreID = null;
+    $scope.stores = {};
+    $scope.closestStores = [];
+
+    // pagination
+
+    $scope.currentPage = 1;
+    $scope.listMaxLength = 25;
+    $scope.pageSize = 3;
+    $scope.activeListItem = 0;
+    $scope.activeListItemPage = 1;
+}]);
+
+
+/// <reference path="../../Vendor/Angular/angular.min.js" />
+/// <reference path="../../Vendor/Jquery/jquery-1.11.3.js" />
+app.controller('beo-become-retailer', ['$scope', 'beoSubmitBecomeRetailer', 'Upload', '$timeout', function ($scope, beoSubmitBecomeRetailer, Upload, $timeout) {
+
+    $scope.files = [];
+    
+
+    $scope.sendRetailerApplication = function () {
+        $scope.formSent = true;
+        $scope.formReceived = true; // hide the form
+        $scope.showSignupLoader = true; // Show spinner
+ 
+        beoSubmitBecomeRetailer.send($scope.retailer, $scope.files).then(function (response) {            
+            if (response.StatusCode == '200') {
+                successCallback(response);
+                dataLayer.push({
+                    'event': 'e',
+                    'eName': 'retailerApplication',
+                    'eVar1': $scope.retailer.country
+                });
+            } else {
+                errorCallback(response);
+            }
+        });
+
+        var successCallback = function(response) {
+                $scope.formSent = false; // hide the loader
+                //$scope.formReceived = true; // hide the form
+                $scope.showSignupSuccess = true;
+                $scope.showSignupLoader = false; // Hide spinner
+        }
+
+        var errorCallback = function (response) {
+            $scope.formSent = false; // hide the loader
+            //$scope.formReceived = true; // hide the form
+            $scope.showSignupError = true;
+            $scope.showSignupLoader = false; // Hide spinner
+        }
+    }
+
+
+    $scope.uploadFile = function (file) {       
+        if (typeof (file) !== 'undefined' && file != null) {
+            $scope.files.push(file);
+        }
+    }
+
+
+    $scope.deleteFile = function (file) {
+        $scope.files.splice(file, 1)
+    }
+
+
+
+
+}]);
+/// <reference path="../../Vendor/Angular/angular.min.js" />
+/// <reference path="../../Vendor/Jquery/jquery-1.11.3.js" />
+app.directive('beolinkMultiroomSeamlessListening', [function () {
+
+    function link(scope, element, attrs) {
+
+        var homeSameMusicTimer;
+        var roomSameArr = [$('#room_all')];
+        
+        var roomDifferentArr = $(element).find('img:not(:last-child)');
+        var roomArr;
+
+        function showHomeMode(index) {
+            switch (index) {
+                case 0:
+                    toggleHomeMusic('different');
+                    break;
+                case 1:
+                    toggleHomeMusic('same');
+                    break;
+            }
+        }
+
+        function toggleHomeMusic(type) {
+            if (homeSameMusicTimer) {
+                clearIntervals(homeSameMusicTimer);
+                homeSameMusicHandler(true);
+            }
+
+            switch (type) {
+                case 'same':
+                    roomArr = roomSameArr;
+                    break;
+                case 'different':
+                    roomArr = roomDifferentArr;
+                    break;
+            }
+            homeSameMusicHandler();
+            homeSameMusicTimer = setInterval(homeSameMusicHandler, 2000);
+        }
+
+        function homeSameMusicHandler(hide) {
+            var length = roomArr.length;
+            var randomLengthInt;
+            var randomAmount;
+            var currVisible;
+            var extraRandom;
+
+            if (hide) {
+                // force hide rooms
+                $('.room.visible').removeClass('visible');
+            } else {
+                // if length of rroms to show/hide is more than one
+                if (roomArr.length > 1) {
+                    // select current visible rooms to hide and avoid repeating
+                    currVisible = $('.room.single.visible');
+
+                    // get a random integer for show random rooms
+                    randomLengthInt = getRandomInt(length, currVisible.index() + 1) - 1;
+
+                    // show one or two rooms simultaneously
+                    randomAmount = getRandomInt(2);
+
+                    // hide previous rooms
+                    if ($('.room.visible').length) {
+                        $('.room.visible').removeClass('visible');
+                    }
+
+                    // show random room
+                    $(roomArr[randomLengthInt]).addClass('visible');
+
+                    // show additional room if amount of rooms are more than one
+                    if (randomAmount > 1) {
+                        extraRandom = getRandomInt(length, randomLengthInt + 1) - 1;
+                        $(roomArr[extraRandom]).addClass('visible');
+                    }
+                } else {
+                    // one only one room should show and hide
+                    if ($(roomArr[0]).hasClass('visible')) {
+                        $(roomArr[0]).removeClass('visible');
+                    } else {
+                        $(roomArr[0]).addClass('visible');
+                    }
+                }
+            }
+        }
+
+        // return a non zero indexed number between 1 and 'length' (both included)
+        // 'not' being optional 
+        function getRandomInt(length, not) {
+            var arr, ret, c = 0;
+            if (not != undefined) {
+                arr = new Array(length);
+                for (var i = 0; i < arr.length; i++) {
+                    arr[i] = i + 1;
+                }
+                arr.splice(not - 1, 1);
+                ret = arr[Math.round(Math.random() * (arr.length - 1))];
+            } else {
+                ret = Math.round(Math.random() * (length - 1)) + 1;
+            }
+            return ret;
+        }
+
+        showHomeMode(0);
+    }
+
+    return {
+        link: link
+    }
+}]);
+app.directive('beoStoreFinderMapContent', ['UtilsService', '$rootScope', function (UtilsService, $rootScope) {
+    var link = function (scope, element, attrs) {
+        scope.$on('mapSearchUpdate', onMapSearchUpdate);
+        scope.$on('mapGeolocationError', onGeolocationError);
+
+        function onGeolocationError(e, a) {
+            if (!$rootScope.isMapOpen) {
+                openMap();
+                $rootScope.isMapOpen = true;
+            }
+        }
+
+        function onMapSearchUpdate(e, a) {
+            if (!$rootScope.isMapOpen) {
+                if (scope.map == null) {
+                    scope.$watch('map', function () {
+                        openMap(a);
+                    });
+                } else {
+                    openMap(a);
+                }
+            }
+        }
+
+        function openMap(a) {
+            var height = element.find('.storefinder-hidden-content-inner').height();
+            var position = element.offset().top - 62 - $rootScope.cookieBar.height();
+            var speed = 1000;
+
+            $rootScope.isMapOpen = true;
+
+            $rootScope.isMapLoading = false;
+
+            element.animate({ height: height }, speed, function () {
+                element.css('height', 'auto');
+                Waypoint.refreshAll();
+            });
+
+            $('html, body').animate({ scrollTop: position }, speed);
+
+            scope.$applyAsync();
+            //scope.$apply();
+        }
+
+        $rootScope.closeMap = function ($event) {
+            var speed = 250;
+
+            element.animate({ height: 0 }, speed, function () {
+                Waypoint.refreshAll();
+            });
+
+            $rootScope.isMapOpen = false;
+
+            if ($event) {
+                $event.preventDefault();
+            }
+        }
+    };
+
+    return {
+        restrict: 'A',
+        replace: true,
+        link: link
+    };
+}]);
+app.directive('beoStoreFinderMap', ['beoStorefinderService', 'UtilsService', '$timeout', 'beoDialogBox', '$rootScope', function (beoStorefinderService, UtilsService, $timeout, beoDialogBox, $rootScope) {
+    // directive link function
+    var link = function (scope, element, attrs) {
+        var infoWindow, cluster;
+        var markers = [];
+        var dataPromise = beoStorefinderService.getStores({ filterid: window.storeFilterID });
+        var style = beoStorefinderService.getStyle();
+        var markerClusterOptions = { maxZoom: window.storeFinderClusterLevel, zoomOnClick: true, styles: [{ textSize: 20, width: 42, height: 42, url: "/ContentV3/Images/Storefinder/markerCluster.png" }] };
+        var checkGoogleLoadedTimer;
+        var pinMarker;
+        var infoWindow;
+
+        // load stores data
+        dataPromise.then(function (data) {
+            scope.stores = data.data;
+
+            // hack: google dom eventlistener load sometimes not triggering. timer doing the eventhandling instead
+            onCheckGoogleLoadedTimer(scope.stores)
+            checkGoogleLoadedTimer = setInterval(function () {
+                onCheckGoogleLoadedTimer(scope.stores)
+            }, 100);
+        });
+
+        function onCheckGoogleLoadedTimer(s) {
+            if (google) {
+                if (!scope.map) {
+                    initialize(s);
+                }
+
+                UtilsService.setIntervalToNull(checkGoogleLoadedTimer);
+            }
+        }
+
+        function initialize(stores) {
+            // map config
+            var mapOptions = {
+                scrollwheel: false,
+                center: new google.maps.LatLng(50, 2),
+                zoom: 4,
+                mapTypeId: 'Styled',
+                disableDefaultUI: true,
+                minZoom: 4,
+                maxZoom: 17
+            };
+            var styledMapType = new google.maps.StyledMapType(style, { name: 'Styled' });
+            var map = new google.maps.Map(element[0], mapOptions);
+
+            scope.map = map;
+
+            scope.map.mapTypes.set('Styled', styledMapType);
+
+            buildZoomNavigation();
+
+            placeMarkers(stores);
+
+            cluster = new MarkerClusterer(scope.map, getMarkersArray(), markerClusterOptions);
+
+            google.maps.event.addListener(scope.map, 'click', function (event) {
+                if (infoWindow) {
+                    infoWindow.close();
+                    closeMarker();
+                }
+            });
+
+            google.maps.event.addListenerOnce(scope.map, 'idle', function (event) {
+                var iFrame = document.getElementsByTagName('iframe')[0];
+                iFrame.removeAttribute("frameBorder");
+                iFrame.setAttribute("title", attrs.iframeTitle);
+
+            });
+
+            scope.$on('mapSearchUpdate', onMapSearchUpdate);
+            scope.$on('mapGeolocationError', onGeolocationError);
+            scope.$broadcast('mapReady', { map: scope.map });
+        }
+
+        function buildZoomNavigation() {
+            element.append('<div class="beo-map-zoom"><a href="#" class="beo-map-zoom-btn zoom-in"><span class="bo-icon-plus"></span></a><a href="#" class="beo-map-zoom-btn zoom-out"><span class="bo-icon-hyphen"></span></a></div>');
+            $('.beo-map-zoom-btn').on('click', onZoomClick);
+        }
+
+        function onZoomClick(e) {
+            var dir = $(e.currentTarget).attr('class').indexOf('zoom-in') > -1 ? 'in' : 'out';
+            zoom(dir);
+            e.preventDefault();
+        }
+
+        function zoom(dir) {
+            var l = dir.toLowerCase() == 'in' ? 1 : -1;
+
+            scope.map.setZoom(scope.map.getZoom() + l);
+        }
+
+        function onGeolocationError(e, a) {
+            zoomCountry(BangOlufsen.Context.OriginCountry);
+            scope.searchCoords = a.search_coords;
+        }
+
+        function onMapSearchUpdate(e, a) {
+            var areaBoundsPromise;
+
+            removePin();
+
+            scope.searchCoords = a.search_coords;
+
+            if (a.type != undefined && a.type.country) {
+                // zoom country
+                areaBoundsPromise = beoStorefinderService.getAreaBounds(a.search_location);
+                areaBoundsPromise.then(onGetAreaBounds, onGetAreaBoundsError);
+
+            } else if (a.store_and_pin_boundries) {
+                // zoom on search location and closest store
+                scope.zoomOnStoreAndCurrLocation(a.closest_stores[0], a.search_coords, true);
+
+            } else {
+                // zoom on store
+                scope.zoomOnStore(a.closest_stores[0], true)
+            }
+        }
+
+        function onGetAreaBounds(e) {
+            scope.map.setCenter(e.center);
+            scope.map.fitBounds(e.bounds);
+        }
+
+        function onGetAreaBoundsError(e) {
+            beoDialogBox.alert(window.alertError);
+        }
+
+        scope.setCenter = function (lat, lng) {
+            var latLong = new google.maps.LatLng(a.lat, a.lng);
+            scope.map.setCenter(latLong);
+        };
+
+        scope.zoomOnStoreAndCurrLocation = function (store, searchcoords, showpin) {
+            var markerBounds = new google.maps.LatLngBounds();
+            var storeLatLng = new google.maps.LatLng(store.Latitude, store.Longitude);
+            var searchLatLng = new google.maps.LatLng(searchcoords.lat, searchcoords.lng);
+            markerBounds.extend(storeLatLng);
+            markerBounds.extend(searchLatLng);
+            scope.map.fitBounds(markerBounds);
+            scope.map.setZoom(scope.map.zoom - 1);
+
+            if (showpin) {
+                setPin(searchLatLng);
+            }
+        };
+
+        scope.zoomOnStore = function (store, openinfo) {
+            var latLong = new google.maps.LatLng(store.Latitude, store.Longitude);
+
+            //scope.map.setZoom(15);
+            scope.map.panTo(latLong, 13);
+
+            if (openinfo) {
+                scope.openInfoWindow(store);
+            }
+        };
+
+        function zoomCountry(c) {
+            var geocoder = new google.maps.Geocoder();
+            geocoder.geocode({ 'address': c }, function (results, status) {
+                if (status == google.maps.GeocoderStatus.OK) {
+                    scope.map.setCenter(results[0].geometry.location);
+                    scope.map.fitBounds(results[0].geometry.viewport);
+                }
+            });
+        }
+
+        scope.openInfoWindow = function (store) {
+            console.log('openInfoWindow');
+            infoWindowOptions = {
+                content: beoStorefinderService.getInfo(store, scope.searchCoords),
+                pixelOffset: new google.maps.Size(70, -40),
+                closeBoxMargin: "25px 25px 0 0",
+                closeBoxURL: '/ContentV3/Images/Map/bo-maps-close.png',
+                infoBoxClearance: new google.maps.Size(1, 1),
+                boxStyle: { paddingRight: '70px', paddingTop: '10px', paddingBottom: '10px' },
+                disableAutoPan: false
+            };
+
+            closeMarker();
+
+            scope.activeStoreID = store.ID;
+
+            if (infoWindow) {
+                infoWindow.close();
+            }
+
+            infoWindow = new InfoBox(infoWindowOptions);
+            infoWindow.open(scope.map, store.marker);
+
+            scope.setActiveListItem(store.marker);
+
+            scope.markerMouseOver(store.marker);
+
+            google.maps.event.addListener(infoWindow, 'closeclick', function (event) {
+                closeMarker();
+            });
+
+            scope.isInfoWindowOpen = true;
+
+            scope.selectedMarker = store.marker;
+
+            scope.$applyAsync();
+
+            setTimeout(function () {
+                $('.beo-map-infowindow-visit-website-btn').on('click', onInfoWindowCtaClick);
+                $('.beo-map-infowindow-bookdemo-btn').on('click', onInfoWindowCtaClick);
+                $('.beo-map-infowindow-directions-btn').on('click', onInfoWindowCtaClick);
+                $('.beo-map-infowindow').focus();
+            }, 0);
+
+        };
+
+        function onInfoWindowCtaClick(e) {
+            var btnType = $(e.currentTarget).attr('data-type');
+            var storeId = $(e.currentTarget).attr('data-storeid');
+            var retailerTypeId = $(e.currentTarget).attr('data-retailertypeid');
+
+            switch (btnType) {
+                case 'visit_website':
+                    if (typeof dataLayer !== 'undefined') {
+                        dataLayer.push({
+                            'event': 'e',
+                            'eName': 'storeVisit',
+                            'eVar1': retailerTypeId,
+                            'eVar2': storeId
+                        });
+
+                    }
+                    break;
+                case 'book_demo':
+                    if (typeof dataLayer !== 'undefined') {
+                        dataLayer.push({
+                            'event': 'e',
+                            'eName': 'storeDemo',
+                            'eVar1': retailerTypeId,
+                            'eVar2': storeId
+                        });
+
+                    }
+                    break;
+                case 'get_directions':
+                    if (typeof dataLayer !== 'undefined') {
+                        dataLayer.push({
+                            'event': 'e',
+                            'eName': 'storeDirections',
+                            'eVar1': retailerTypeId,
+                            'eVar2': storeId
+                        });
+                    }
+                    break;
+            }
+        }
+
+        function closeMarker() {
+            var previousMarker = scope.activeStoreID ? ($.grep(markers, function (e) { return e.id == scope.activeStoreID; }))[0] : null;
+            if (previousMarker) {
+                scope.activeStoreID = null;
+                scope.markerMouseOut(previousMarker.marker);
+            }
+            scope.selectedMarker = null;
+            scope.isInfoWindowOpen = false;
+            scope.$applyAsync();
+        }
+
+        function getIndoWindowHeight(store) {
+            var h = 0;
+            var $t = $(beoStorefinderService.getInfo(store, scope.searchCoords));
+
+            $t.attr('id', store.ID)
+            $('body').append($t);
+            h = $t.eq(0).height() + 50;
+            $t.remove();
+            return h;
+        }
+
+        function setPin(position) {
+            removePin();
+
+            pinMarker = new MarkerWithLabel({
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 0,
+                },
+                position: position,
+                map: scope.map,
+                draggable: false,
+                labelAnchor: new google.maps.Point(30, 30),
+                labelClass: "location-pin"
+            });
+        }
+
+        function removePin() {
+            if (pinMarker) {
+                pinMarker.setMap(null);
+            }
+        }
+
+        // place a marker
+        function setMarker(store, map) {
+            var marker;
+            var infoWindowOptions;
+            var image = {
+                url: '/ContentV3/Images/Storefinder/' + store.RetailerTypeID.toLowerCase() + '.png',
+                scaledSize: new google.maps.Size(38, 38),
+                anchor: new google.maps.Point(20, 20)
+            };
+            var markerOptions = {
+                position: new google.maps.LatLng(store.Latitude, store.Longitude),
+                map: scope.map,
+                storeId: store.ID,
+                storeRetailerTypeID: store.RetailerTypeID,
+                icon: image
+            };
+
+            marker = new google.maps.Marker(markerOptions);
+            markers.push({ id: store.ID, marker: marker });
+
+            google.maps.event.addListener(marker, 'click', function () {
+                scope.openInfoWindow(store);
+
+                if (typeof dataLayer !== 'undefined') {
+                    dataLayer.push({
+                        'event': 'e',
+                        'eName': 'storeMap',
+                        'eVar1': store.RetailerTypeID,
+                        'eVar2': store.ID
+                    });
+                }
+
+                if (!beoStorefinderService.isStoreinClosestStoresList(scope, marker.storeId)) {
+                    scope.$broadcast('mapSearchUpdate', { closest_stores: beoStorefinderService.getStoresOrderedByDistance(store.Latitude, store.Longitude, scope.stores), search_coords: scope.searchCoords, store_and_pin_boundries: false });
+
+                    scope.clearSearchField();
+                }
+            });
+
+            google.maps.event.addListener(marker, 'mouseover', function () {
+                scope.markerMouseOver(marker);
+
+                if (beoStorefinderService.isStoreinClosestStoresList(scope, marker.storeId)) {
+                    scope.higlightListItem(marker);
+                }
+            });
+
+            google.maps.event.addListener(marker, 'mouseout', function () {
+                console.log('MOUSE OUT');
+                scope.markerMouseOut(marker);
+
+                if (beoStorefinderService.isStoreinClosestStoresList(scope, marker.storeId)) {
+                    scope.unsetHiglightListItem(marker);
+                }
+            });
+
+            store.marker = marker;
+        }
+
+        scope.markerMouseOut = function (marker) {
+            var image;
+            if (scope.activeStoreID != marker.storeId) {
+
+                image = {
+                    url: '/ContentV3/Images/Storefinder/' + marker.storeRetailerTypeID.toLowerCase() + '.png',
+                    scaledSize: new google.maps.Size(38, 38),
+                    anchor: new google.maps.Point(19, 19)
+                };
+                marker.setOptions({ icon: image });
+            }
+        }
+
+        scope.markerMouseOver = function (marker) {
+            var image;
+            image = {
+                url: '/ContentV3/Images/Storefinder/' + marker.storeRetailerTypeID.toLowerCase() + '_mo.png',
+                scaledSize: new google.maps.Size(51, 51),
+                anchor: new google.maps.Point(25, 25)
+            };
+            marker.setOptions({ icon: image });
+            marker.setZIndex(1000);
+        }
+
+        function placeMarkers(obj) {
+            for (var i = 0; i < obj.length; i++) {
+                var store = obj[i];
+                setMarker(store, scope.map);
+            }
+        }
+
+        function getMarkersArray() {
+            var r = [];
+            for (var i in markers) {
+                r.push(markers[i].marker);
+            }
+            return r;
+        }
+    };
+
+    return {
+        restrict: 'A',
+        replace: true,
+        link: link
+    };
+
+}]);
+app.directive('beoStoreFinderSearch', ['beoStorefinderService', 'UtilsService', 'beoDialogBox', '$rootScope', function (beoStorefinderService, UtilsService, beoDialogBox, $rootScope) {
+    var link = function (scope, element, attrs) {
+        var dataPromise;
+        var autocomplete;
+        var geoLoc = navigator.geolocation;
+        var watchGeoLoc;
+        var place;
+        var searchParam = getParameterByName('findstore');
+
+        scope.$on('mapReady', onMapReady);
+        scope.$on('mapSearchError', function (e, a) {
+            if (a.error == 'ZERO_RESULTS') {
+                scope.noresults = true;
+            }
+        });
+
+        function getParameterByName(name, url) {
+            var s = '';
+            if (!url) url = window.location.href;
+            name = name.replace(/[\[\]]/g, "\\$&");
+            var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+                results = regex.exec(url);
+            if (!results) return null;
+            if (!results[2]) return '';
+
+            return decodeURIComponent(results[2].replace(/\+/g, " "));
+        }
+
+        function onMapReady() {
+            autocomplete = new google.maps.places.Autocomplete(element[0]);
+            autocomplete.bindTo('bounds', scope.map);
+            autocomplete.addListener('place_changed', onAutoComplete);
+
+            doUrlParamSearch();
+        }
+
+        function onAutoComplete(e) {
+            var searchCoords;
+
+            place = autocomplete.getPlace() === undefined ? $(element).val() : autocomplete.getPlace();
+
+            if (autocomplete.geometry !== undefined) {
+                searchCoords = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
+                scope.$broadcast('mapSearchUpdate', { search_event: e, closest_stores: beoStorefinderService.getStoresOrderedByDistance(searchCoords.lat, searchCoords.lng, scope.stores), search_coords: searchCoords, store_and_pin_boundries: true });
+
+                scope.noresults = false;
+
+                element.blur();
+
+                scope.$apply();
+
+                if (autocomplete.getPlace().formatted_address) {
+                    scope.searchVal = autocomplete.getPlace().formatted_address;
+                }
+
+                if (typeof dataLayer !== 'undefined') {
+                    dataLayer.push({
+                        'event': 'e',
+                        'eName': 'storeSearch',
+                        'eVar1': scope.searchVal
+                    });
+                }
+            } else {
+                dataPromise = beoStorefinderService.getReversedGecode(element[0].value);
+                dataPromise.then(onGeoCode, onGeoCodeError);
+            }
+        }
+
+        function onGeoCode(data) {
+            var typesArr = data.address_components[0].types;
+            var isCountrySearch = data.address_components[0].types[0] == 'country';
+            var isCitySearch = data.address_components[0].types[0] == 'locality';
+            var isAddrSearch = typesArr.indexOf('locality') < 0 && typesArr.indexOf('sublocality') < 0 && typesArr.indexOf('neighborhood') < 0 && typesArr.indexOf('political') < 0;
+            var searchCoords = { lat: data.geometry.location.lat(), lng: data.geometry.location.lng() };
+
+            scope.$broadcast('mapSearchUpdate', { closest_stores: beoStorefinderService.getStoresOrderedByDistance(searchCoords.lat, searchCoords.lng, scope.stores), search_coords: searchCoords, search_location: place.name, store_and_pin_boundries: !isCountrySearch, type: { city: isCitySearch, country: isCountrySearch, address: isAddrSearch } });
+
+            scope.noresults = false;
+
+            element.blur();
+
+            if (typeof dataLayer !== 'undefined') {
+                dataLayer.push({
+                    'event': 'e',
+                    'eName': 'storeSearch',
+                    'eVar1': scope.searchVal
+                });
+            }
+        }
+
+        function onGeoCodeError(data) {
+            scope.$broadcast('mapSearchError', data);
+            element.blur();
+        }
+
+        scope.onSearchClick = function () {
+            if (scope.map == null) {
+                scope.toggleSpinner(true);
+                scope.$watch('map', function (n, o) {
+                    if (scope.map != null) {
+                        google.maps.event.trigger(autocomplete, 'place_changed');
+                    }
+                });
+            } else {
+                scope.toggleSpinner(false);
+                google.maps.event.trigger(autocomplete, 'place_changed');
+            }
+        }
+
+        $rootScope.onGetMyLocation = function () {
+            if (!$rootScope.isMapOpen) {
+                $rootScope.isMapLoading = true;
+
+                openMap();
+            }
+        };
+
+        $rootScope.openStoreFinderDesktopMap = function () {
+            $rootScope.onGetMyLocation();
+        }
+
+        function openMap() {
+            place = null;
+            scope.clearSearchField();
+
+            if (scope.map == null) {
+                scope.toggleSpinner(true);
+
+                scope.$watch('map', function (n, o) {
+                    if (scope.map != null) {
+                        runOnGetMyLocation();
+                    }
+                });
+            } else {
+                runOnGetMyLocation();
+            }
+
+            element.blur();
+        }
+
+        function runOnGetMyLocation() {
+
+            if (navigator.geolocation) {
+                if (scope.myGeolocation) {
+                    scope.$broadcast('mapSearchUpdate', { closest_stores: beoStorefinderService.getStoresOrderedByDistance(scope.myGeolocation.lat, scope.myGeolocation.lng, scope.stores), search_coords: scope.myGeolocation, store_and_pin_boundries: true });
+                    scope.toggleSpinner(false);
+                    scope.noresults = false;
+                } else {
+                    watchGeoLoc = geoLoc.watchPosition(onGeolocationSuccess, onGeolocationError, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                }
+            } else {
+                scope.toggleSpinner(false);
+                scope.noresults = false;
+                geolocationNotAvailable();
+            }
+        }
+
+        function onGeolocationSuccess(e) {
+            scope.isGeolocationBlocked = false;
+            scope.myGeolocation = { lat: e.coords.latitude, lng: e.coords.longitude };
+            scope.searchCoords = scope.myGeolocation;
+            scope.$broadcast('mapSearchUpdate', { closest_stores: beoStorefinderService.getStoresOrderedByDistance(scope.myGeolocation.lat, scope.myGeolocation.lng, scope.stores), search_coords: scope.myGeolocation, store_and_pin_boundries: true });
+            element[0].value = '';
+            element.blur();
+
+            scope.toggleSpinner(false);
+
+            geoLoc.clearWatch(watchGeoLoc);
+
+            if ($.cookie('geolocation_denied') != undefined) {
+                $.cookie('geolocation_denied', 'false', { expires: 7 });
+            }
+
+            scope.$apply();
+        }
+
+        function onGeolocationError(e) {
+            console.log('error code', e.code);
+            scope.isGeolocationBlocked = true;
+
+            geoLoc.clearWatch(watchGeoLoc);
+
+            geolocationNotAvailable();
+
+            switch (e.code) {
+                case 1:
+                    //User denied geolocation!
+                    beoDialogBox.alert(window.alertGeolocationBlocked);
+
+                    if ($.cookie('geolocation_denied') == undefined) {
+                        $.cookie('geolocation_denied', 'true', { expires: 7 });
+                    }
+                    break;
+                case 2:
+                    //No response received!
+                    beoDialogBox.alert(window.alertGeolocationError);
+                    break;
+                default:
+                    beoDialogBox.alert(window.alertGeolocationError);
+            }
+        }
+
+        function getMyLocation() {
+            if (!navigator.geolocation) {
+                return 'Geolocation is not supported by this browser';
+            }
+            return navigator.geolocation;
+        }
+
+        function geolocationNotAvailable() {
+            var country = BangOlufsen.Context.OriginCountryName;
+            var geocoder = new google.maps.Geocoder();
+
+            geocoder.geocode({ 'address': country }, function (results, status) {
+                if (status == google.maps.GeocoderStatus.OK) {
+                    scope.myGeolocation = { lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() };
+                    scope.$broadcast('mapGeolocationError', { closest_stores: beoStorefinderService.getStoresOrderedByDistance(scope.myGeolocation.lat, scope.myGeolocation.lng, scope.stores), search_coords: scope.myGeolocation });
+                    element[0].value = '';
+                    scope.$apply();
+                }
+            });
+        }
+
+        function doUrlParamSearch() {
+            if (searchParam) {
+                $(element).val(searchParam);
+                scope.onSearchClick();
+            }
+        }
+
+        scope.clearSearchField = function () {
+            //$(element).val('');
+        }
+
+        scope.toggleSpinner = function (show) {
+            if (show) {
+                $('.search-btn').addClass('loading');
+                $('.search-inp').attr('disabled', 'disabled');
+                $('.search-btn').attr('disabled', 'disabled');
+            } else {
+                $('.search-btn').removeClass('loading');
+                $('.search-inp').removeAttr('disabled');
+                $('.search-btn').removeAttr('disabled');
+            }
+        }
+    };
+
+    return {
+        link: link
+    }
+}]);
+/// <reference path="../../Vendor/Angular/angular.min.js" />
+/// <reference path="../../Vendor/Jquery/jquery-1.11.3.js" />
+app.directive('beoScrollArrow', ['$window', function ($window) {
+    function link(scope, element, attrs) {
+        var $parent = element.parent();
+        var $wrp = $(element).find('> span');
+        var $icon = $wrp.find('> span');
+        var isRunning = true;
+        var tl;
+
+        function run() {
+            if ($parent.height() > $window.innerHeight) {
+                $(window).on('resize', onResize).on('scroll', onScroll);
+
+                tl = new TimelineMax({ repeat: -1 });
+                tl.to($wrp, 2, { top: 50 });
+                tl.to($wrp, .5, { alpha: 1 }, "-=2");
+                tl.to($wrp, .5, { alpha: 0 }, "-=0.5");
+                tl.play();
+            }
+        }
+
+        function onResize(e) {
+            var t = ($parent.offset().top + $window.innerHeight) * 0.90;
+            //$(element).css('top', t + 'px');
+
+            if (isRunning) {
+                fadeArrow();
+            }
+        }
+
+        function onScroll(e) {
+            if ($window.pageYOffset > 5 && isRunning) {
+                fadeArrow();
+            }
+        }
+
+        function fadeArrow() {
+            TweenLite.to($(element), 1, { autoAlpha: 0, onComplete: onScrollFadeoutComplete });
+            isRunning = false;
+        }
+
+        function onScrollFadeoutComplete(e) {
+            tl.clear();
+            tl.kill();
+        }
+
+        setTimeout(run, 500);
+        //run();
+    }
+
+    return {
+        template: '<span class="scroll-arrow"><span class="bo-icon-arrow-down"></span></span>',
+        restrict: 'E',
+        link: link
+    }
+}]);
+app.directive('beoFadeUpOnScroll', ['UtilsService', function (UtilsService) {
+    var link = function (scope, element, attrs) {
+
+        var waypoint;
+        var move = attrs.fadeUpMargin == 'true' ? true : false;
+        var offset = attrs.beoFadeUpOffset != undefined ? attrs.beoFadeUpOffset : '80%';
+        var options;
+        var moveUp = attrs.fadeFromBottom == 'true' ? true : false;
+        var moveDown = attrs.fadeFromTop == 'true' ? true : false;
+        var moveLeft = attrs.fadeFromLeft == 'true' ? true : false;
+        var moveRight = attrs.fadeFromRight == 'true' ? true : false;
+        var speed = attrs.speed != undefined ? attrs.speed : '1s';
+        var moveDistance = attrs.moveDistance != undefined ? parseInt(attrs.moveDistance, 10) : 50;
+        var $img = element.find('> img');
+        var $element = moveLeft || moveRight ? $img : $(element);
+
+        offset = offset.indexOf('%') > -1 ? offset : offset + '%';
+
+        if (scope.device.desktop) {
+            if (moveLeft || moveRight) {
+                if ($img.length) {
+                    $img.one('load', function () {
+                        var padding = ($img.height() / $img.width()) * 100;
+                        $img.wrap('<div class="fade-up-on-scroll-inner" style="padding-bottom: ' + padding + '%;"></div>');
+                        if (moveLeft) {
+                            $element.css({ 'margin-right': moveDistance + 'px', 'margin-left': (-1 * moveDistance) + 'px' });
+                        }
+
+                        if (moveRight) {
+                            $element.css({ 'margin-left': moveDistance + 'px', 'margin-right': (-1 * moveDistance) + 'px' });
+                        }
+                    }).each(function () {
+                        if (this.complete) $(this).load();
+                    });
+                }
+            }
+
+            if (move && !moveUp && !moveDown && !moveLeft && !moveRight) {
+                $element.css({ 'margin-top': moveDistance + 'px', 'margin-bottom': (-1 * moveDistance) + 'px' });
+            }
+
+            if (moveUp) {
+                $element.css({ 'margin-top': moveDistance + 'px', 'margin-bottom': (-1 * moveDistance) + 'px' });
+            }
+
+            if (moveDown) {
+                $element.css({ 'margin-bottom': moveDistance + 'px', 'margin-top': (-1 * moveDistance) + 'px' });
+            }
+
+
+            waypoint = new Waypoint({
+                element: $element,
+                handler: function (direction) {
+
+                    if (Modernizr.csstransitions) {
+
+                        if (move && !moveUp && !moveDown && !moveLeft && !moveRight) {
+                            options = { 'opacity': '1', 'margin-top': '0', 'margin-bottom': '0' };
+                        } else if (moveUp) {
+                            options = { 'opacity': '1', 'margin-top': '0', 'margin-bottom': '0' };
+                        } else if (moveDown) {
+                            options = { 'opacity': '1', 'margin-top': '0', 'margin-bottom': '0' };
+                        } else if (moveLeft) {
+                            options = { 'opacity': '1', 'margin-left': '0', 'margin-right': '0' };
+                        } else if (moveRight) {
+                            options = { 'opacity': '1', 'margin-left': '0', 'margin-right': '0' };
+                        } else {
+                            options = { 'opacity': '1' };
+                        }
+
+                        $element.on('transitionend webkitTransitionEnd oTransitionEnd MSTransitionEnd', onTransitionEnd);
+                        $element.css({ '-moz-transition-duration': speed, '-o-transition-duration': speed, '-webkit-transition-duration': speed, 'transition-duration': speed });
+                        $element.addClass('in');
+                        $element.css(options);
+
+
+                    } else {
+                        if (move && !moveUp && !moveDown && !moveLeft && !moveRight) {
+                            options = { opacity: 1, marginTop: 0, marginBottom: 0 }
+                        } else if (moveUp) {
+                            options = { opacity: 1, marginTop: 0, marginBottom: 0 }
+                        } else if (moveDown) {
+                            options = { opacity: 1, marginTop: 0, marginBottom: 0 }
+                        } else if (moveLeft) {
+                            options = { opacity: 1, marginLeft: 0, marginRight: 0 }
+                        } else if (moveRight) {
+                            options = { opacity: 1, marginLeft: 0, marginRight: 0 }
+                        } else {
+                            options = { opacity: 1 }
+                        }
+                        $(element).animate(options, (parseInt(attrs.moveDistance, 10) * 1000), function () { onTransitionEnd(e); });
+                    }
+
+                    waypoint.destroy();
+                },
+                offset: offset
+            });
+
+            function onTransitionEnd(e) {
+                //if (e.originalEvent.propertyName == 'opacity') {
+                $(element).removeClass('in');
+                $(element).off('webkitAnimationEnd oanimationend msAnimationEnd animationend', onTransitionEnd);
+                $element.css({ '-moz-transition-duration': '', '-o-transition-duration': '', '-webkit-transition-duration': '', 'transition-duration': '' });
+                //}
+            }
+        }
+    };
+
+    return {
+        restrict: 'A',
+        link: link
+    };
+}]);
+app.directive('sameHeightBlock', [function () {
+    return {
+        link: function ($scope, element, attrs) {
+
+            $boxes = element.find('.cta-block a');
+
+            $titles = element.find('.cta-block a h5');
+
+            $('.cta-block a').matchHeight(
+                {
+                    byRow: true,
+                    property: 'min-height',
+                    target: null,
+                    remove: false
+                });
+            $('.cta-block a h5').matchHeight(
+                {
+                    byRow: true,
+                    property: 'min-height',
+                    target: null,
+                    remove: false
+                });            
+        }
+    }
+}]);
+app.directive('beoSpecificationsColorPicker', ['UtilsService', 'beoSubmitBookDemo', function (UtilsService, beoSubmitBookDemo) {
+    // directive link function
+    var link = function (scope, element, attrs) {
+        var $images = $(element).find('.clrpckr__slctd--item');
+        scope.onClrClick = function ($event) {
+            var $this = $($event.currentTarget);
+            var index = $this.closest('li').index();
+            var $image = $images.eq(index);
+
+            $this.parent().siblings().removeClass('clrpckr__clrs--active');
+            $this.parent().addClass('clrpckr__clrs--active');
+
+            $images.filter('.clrpckr__slctd--active').removeClass('clrpckr__slctd--active');
+            $image.addClass('clrpckr__slctd--active');
+        }
+    };
+
+    return {
+        restrict: 'A',
+        link: link
+    };
+
+}]);
+// <reference path="../../Vendor/Angular/angular.min.js" />dd.set
+/// <reference path="../../Vendor/Jquery/jquery-1.11.3.js" />
+app.directive('beoBv50MovingBackgroundImage', [function () {
+    
+    // directive link function
+    var link = function (scope, element, attrs) {
+        var $image = element.find('img');
+        var $wrapper = element.find('> div');
+
+        $image.one('load', function () {
+            $(window).on('resize', onWindowResize).trigger('resize');
+        }).each(function () {
+            if (this.complete) $(this).load();
+        });
+
+
+        var waypoint = new Waypoint({
+            element: $(element),
+            handler: function (direction) {
+                $image.on('transitionend webkitTransitionEnd oTransitionEnd MSTransitionEnd', onTransitionEnd);
+                $image.addClass('bv50mbi__image--in');
+                $image.addClass('bv50mbi__image--move');
+                waypoint.destroy();
+            },
+            offset: '70%'
+        });
+
+        function onTransitionEnd(e) {
+            //if (e.originalEvent.propertyName == 'margin-top') {
+            $(element).removeClass('bv50mbi__image--in');
+            $(element).off('webkitAnimationEnd oanimationend msAnimationEnd animationend', onTransitionEnd);
+            //}
+        }
+
+        function onWindowResize(e) {
+            element.css('height', ($image.height() + 'px'));
+        }
+    };
+
+    return {
+        restrict: 'A',
+        link: link
+    };
+}]);
+/// <reference path="../../Vendor/Angular/angular.min.js" />
+/// <reference path="../../Vendor/Jquery/jquery-1.11.3.js" />
+app.directive('beoScrollfixedBackground', ['$window', function ($window) {
+    // directive link function
+    var link = function (scope, element, attrs) {
+        var h, w, dimensions, imageRatio, contentRatio;
+        var $content = element.find('.scrollfixed-content');
+        var $background = $(element).find('.scrollfixed-background');
+        var mediaType = $background.children().is('video') ? 'video' : 'img';
+        var isPassed = false;
+        var $backgroundMedia = mediaType === 'video' ? $background.find('video') : $background.find('img');
+        var $img = $('.bv50control__background--media')
+        var sticky = new Waypoint.Sticky({
+            element: $background
+        });
+        var waypointInView = new Waypoint.Inview({
+            element: $content,
+            entered: function (direction) {
+                if (direction == 'down') {
+                    $background.addClass('passed');
+
+                    if ($content.height() > $window.innerHeight) {
+                        $background.addClass('align-bottom');
+                    }
+
+                    isPassed = true;
+                    adjustBackgroundPosition()
+                }
+            },
+            exit: function (direction) {
+                if (direction == 'up' && $background.hasClass('passed')) {
+                    $background.removeClass('passed').removeClass('align-bottom');
+                    isPassed = false;
+                    adjustBackgroundPosition()
+                }
+            }
+        });
+
+        if (mediaType === 'video') {
+            $(document).ready(function () {
+                $backgroundMedia[0].load();
+                $backgroundMedia.on('loadedmetadata', function (e) {
+                    //alert('LOADED');
+                    h = this.videoHeight;
+                    w = this.videoWidth;
+                    $backgroundMedia[0].play();
+
+                    $backgroundMedia.attr('loop', 'loop');
+
+                    bind();
+                });
+            });
+        } else if (mediaType === 'img') {
+            $backgroundMedia.one("load", function () {
+                // image loaded
+                w = parseInt($backgroundMedia.width());
+                h = parseInt($backgroundMedia.height());
+
+                bind();
+            }).each(function () {
+                if (this.complete) $(this).load();
+            });
+        }
+
+        function bind() {
+            imageRatio = w / h;
+
+            contentRatio = $content.outerWidth() / $content.outerHeight();
+
+            $backgroundMedia.css({ 'visibility': 'visible' });
+
+            $(window).on('resize', onResize).on('scroll', onScroll).trigger('resize');
+        }
+
+        function onScroll() {
+            adjustBackgroundPosition();
+        }
+
+        function onResize(e) {
+            adjustBackgroundPosition();
+        }
+
+        function adjustBackgroundPosition() {
+            dimensions = getFullscreenImageDimensions({ image: $backgroundMedia, context: element, orgwidth: w, orgheight: h });
+
+            if (dimensions.marginTop < 0) {
+                $backgroundMedia.css({ 'width': '100%', 'height': 'auto' });
+
+                if (isPassed) {
+                    $backgroundMedia.css({ 'margin-top': 'auto', 'margin-bottom': dimensions.marginTop + 'px' });
+                } else {
+                    $backgroundMedia.css({ 'margin-top': dimensions.marginTop + 'px', 'margin-bottom': 'auto' });
+                }
+
+            } else {
+                $backgroundMedia.css({ 'width': '', 'height': '', 'margin-top': '', 'margin-bottom': '' });
+            }
+        }
+
+        function getElementScrollPercent() {
+            var elemWinScrollTopPos = $(window).scrollTop() - element.offset().top;
+            var elemWinScrollBottomPos = elemWinScrollTopPos + $(window).height() - element.height();
+            var overflow = elemWinScrollTopPos - elemWinScrollBottomPos;
+            var perc = Math.max(elemWinScrollTopPos / overflow, 0);
+            var overflowMove;
+            var overflowMoveReverse;
+
+            perc = Math.min(perc, 1);
+            overflowMove = overflow * perc;
+
+            overflowMoveReverse = overflow - overflowMove;
+
+            return { overflowScrolled: perc, overflowMove: overflowMove, overflowMoveReverse: overflowMoveReverse };
+        }
+
+        function getFullscreenImageDimensions(o) {
+            var $parent = angular.element(o.context);
+            var widthRatio = $(window).width() / o.orgwidth;
+            var heightRatio = $(window).innerHeight() / o.orgheight;
+            var ratio = widthRatio;
+            var marginTop;
+            var marginLeft;
+            var width;
+            var height;
+
+            if (widthRatio * o.orgheight < $(window).innerHeight()) {
+                ratio = heightRatio;
+            }
+
+            width = o.orgwidth * ratio;
+            height = o.orgheight * ratio;
+
+            if (widthRatio * o.orgheight < $(window).innerHeight()) {
+                ratio = heightRatio;
+                marginTop = 0;
+                marginLeft = -1 * (((o.orgwidth * ratio) - $(window).width()) / 2);
+            } else {
+                marginTop = -1 * (((o.orgheight * ratio) - $(window).innerHeight()) / 2);
+                marginLeft = 0;
+            }
+
+            return { width: width, height: height, marginLeft: marginLeft, marginTop: marginTop };
+        }
+
+        $(window).on('resize', function () {
+            Waypoint.refreshAll();
+        });
+    };
+
+    return {
+        restrict: 'A',
+        link: link
+    };
+}]);
+app.directive('beoSetContentFocus', ['$rootScope', function ($rootScope) {
+    var link = function (scope, element, attrs) {
+
+        element.on('click', function () {
+            var $skipTo = $("#" + this.href.split('#')[1]);
+
+            // Setting 'tabindex' to -1 takes an element out of normal 
+            // tab flow but allows it to be focused via javascript
+            $skipTo.attr('tabindex', -1).on('blur focusout', function () {
+                // when focus leaves this element, 
+                // remove the tabindex attribute
+                $(this).removeAttr('tabindex');
+
+            }).focus(); // focus on the content container
+        });
+    };
+
+    return {
+        restrict: 'EA',
+        link: link
+    };
+}]);
+
+app.service('beoSubmitBecomeRetailer', function ($http, $q, Upload, $timeout) {
+    function send(obj, files) {
+        var request = Upload.upload({
+            method: "post",
+            url: "/api/BecomeARetailerApi/Submit",
+            data: {
+                formid: obj.formid,
+                name: obj.name,
+                address: obj.address,
+                postcode: obj.postcode,
+                state: obj.state,
+                country: obj.country,
+                phone: obj.phone,
+                mobil: obj.mobile,
+                email: obj.email,
+                citizenship: obj.citizenship,
+                countryOfInterest: obj.countryOfInterest,
+                locationPreference: obj.desiredLocation,
+                workExperience: obj.workExperience,
+                howDidYouHear: obj.referral,
+                otherRelevantInformation: obj.relevantInformation,
+                files: files
+            }
+        });
+        return (request.then(handleSuccess, handleError));
+
+    }
+
+    function handleSuccess(response) {
+        return (response.data);
+    }
+
+    function handleError(response) {
+        return (response);
+    }
+
+    return ({
+        send: send
+
+    });
+});
+

@@ -1,0 +1,144 @@
+(function(w,l,s) {
+var d = w.document,
+t = setTimeout(b, 10000),
+j = d.createElement('script')
+j.type = 'text/javascript'
+function b() {
+clearTimeout(t);
+if ( l in w ) {
+if (!w[s]) w[s] = {}
+
+w[s].CustomerId = 12943;
+w[s].SleeknotePiwikSiteId = 12255;
+w[s].HideSleeknoteBadge = true;
+w[s].SleekNotes = [
+{
+CampaignId: "9445bf34-e827-4b31-8d56-af0bc67ecdc1", 
+SplitTestId: "",
+"Version": 3,
+"placement": [
+  0,
+  0
+],
+"BoxAndBarAlignment": [
+  9,
+  9
+],
+"SleeknoteType": "promote",
+"SleeknoteId": "9445bf34-e827-4b31-8d56-af0bc67ecdc1",
+"CustomerId": 12943,
+"SuccessLandingPage": [
+  "",
+  ""
+],
+"ShowTeaser": [
+  true,
+  true
+],
+"SuccessAction": [
+  "closeBox",
+  "closeBox"
+],
+"rules": {
+  "display": [
+    1
+  ],
+  "showCount": 4,
+  "triggers": [
+    {
+      "type": 1,
+      "value": "3"
+    }
+  ],
+  "groups": [
+    {
+      "groupAnd": true,
+      "conditionAnd": true,
+      "conditions": [
+        {
+          "type": 11,
+          "matchType": "none",
+          "value": "{\"include\":[{\"value\":{\"place_id\":\"ChIJyY4rtGcX2jERIKTarqz3AAQ\",\"sw\":{\"lat\":1.216611,\"lng\":103.60650989999999},\"ne\":{\"lat\":1.4708809,\"lng\":104.04157989999999}},\"caption\":\"Singapore\"},{\"value\":{\"place_id\":\"ChIJVyzznc1IlUcREG0F0dbRAAQ\",\"sw\":{\"lat\":49.56028000000001,\"lng\":6.069020000000023},\"ne\":{\"lat\":49.6549299,\"lng\":6.202720099999965}},\"caption\":\"Luxemburg, Luxembourg\"},{\"value\":{\"geoname_id\":272103,\"addr\":\"LB\",\"type\":\"country\"},\"caption\":\"Lebanon\"},{\"value\":{\"geoname_id\":719819,\"addr\":\"HU\",\"type\":\"country\"},\"caption\":\"Hungary\"},{\"value\":{\"geoname_id\":1861060,\"addr\":\"JP\",\"type\":\"country\"},\"caption\":\"Japan\"},{\"value\":{\"geoname_id\":2629691,\"addr\":\"IS\",\"type\":\"country\"},\"caption\":\"Iceland\"},{\"value\":{\"geoname_id\":2661886,\"addr\":\"SE\",\"type\":\"country\"},\"caption\":\"Sweden\"},{\"value\":{\"geoname_id\":2264397,\"addr\":\"PT\",\"type\":\"country\"},\"caption\":\"Portugal\"},{\"value\":{\"geoname_id\":1694008,\"addr\":\"PH\",\"type\":\"country\"},\"caption\":\"Philippines\"},{\"value\":{\"geoname_id\":2782113,\"addr\":\"AT\",\"type\":\"country\"},\"caption\":\"Austria\"},{\"value\":{\"geoname_id\":660013,\"addr\":\"FI\",\"type\":\"country\"},\"caption\":\"Finland\"},{\"value\":{\"geoname_id\":3017382,\"addr\":\"FR\",\"type\":\"country\"},\"caption\":\"France\"},{\"value\":{\"geoname_id\":1562822,\"addr\":\"VN\",\"type\":\"country\"},\"caption\":\"Vietnam\"},{\"value\":{\"geoname_id\":458258,\"addr\":\"LV\",\"type\":\"country\"},\"caption\":\"Latvia\"},{\"value\":{\"geoname_id\":6251999,\"addr\":\"CA\",\"type\":\"country\"},\"caption\":\"Norway\"},{\"value\":{\"geoname_id\":1643084,\"addr\":\"ID\",\"type\":\"country\"},\"caption\":\"Indonesia\"},{\"value\":{\"geoname_id\":2510769,\"addr\":\"ES\",\"type\":\"country\"},\"caption\":\"Spain\"},{\"value\":{\"geoname_id\":2750405,\"addr\":\"NL\",\"type\":\"country\"},\"caption\":\"Netherlands\"},{\"value\":{\"geoname_id\":2963597,\"addr\":\"IE\",\"type\":\"country\"},\"caption\":\"Ireland\"},{\"value\":{\"geoname_id\":2635167,\"addr\":\"GB\",\"type\":\"country\"},\"caption\":\"United Kingdom\"},{\"value\":{\"geoname_id\":1605651,\"addr\":\"TH\",\"type\":\"country\"},\"caption\":\"Thailand\"},{\"value\":{\"geoname_id\":3175395,\"addr\":\"IT\",\"type\":\"country\"},\"caption\":\"Italy\"},{\"value\":{\"geoname_id\":597427,\"addr\":\"LT\",\"type\":\"country\"},\"caption\":\"Lithuania\"},{\"value\":{\"geoname_id\":6252001,\"addr\":\"US\",\"type\":\"country\"},\"caption\":\"United States\"},{\"value\":{\"geoname_id\":2802361,\"addr\":\"BE\",\"type\":\"country\"},\"caption\":\"Belgium\"},{\"value\":{\"geoname_id\":390903,\"addr\":\"GR\",\"type\":\"country\"},\"caption\":\"Greece\"},{\"value\":{\"geoname_id\":6251999,\"addr\":\"CA\",\"type\":\"country\"},\"caption\":\"Canada\"},{\"value\":{\"geoname_id\":3077311,\"addr\":\"CZ\",\"type\":\"country\"},\"caption\":\"Czech Republic\"},{\"value\":{\"geoname_id\":798544,\"addr\":\"PL\",\"type\":\"country\"},\"caption\":\"Poland\"},{\"value\":{\"geoname_id\":1269750,\"addr\":\"IN\",\"type\":\"country\"},\"caption\":\"India\"},{\"value\":{\"geoname_id\":2921044,\"addr\":\"DE\",\"type\":\"country\"},\"caption\":\"Germany\"},{\"value\":{\"geoname_id\":2658434,\"addr\":\"CH\",\"type\":\"country\"},\"caption\":\"Switzerland\"}],\"exclude\":[]}",
+          "id": "44466545"
+        },
+        {
+          "type": 4,
+          "matchType": "none",
+          "value": "{\"include\":[{\"value\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-1\",\"caption\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-1\"},{\"value\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-2\",\"caption\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-2\"},{\"value\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-35\",\"caption\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-35\"},{\"value\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-shape\",\"caption\":\"https://www.bang-olufsen.com/it/collection/wireless-speaker-systems/beosound-shape\"},{\"value\":\"https://www.bang-olufsen.com/it/speakers/beosound-1\",\"caption\":\"https://www.bang-olufsen.com/it/speakers/beosound-1\"},{\"value\":\"https://www.bang-olufsen.com/it/speakers/beosound-2\",\"caption\":\"https://www.bang-olufsen.com/it/speakers/beosound-2\"},{\"value\":\"https://www.bang-olufsen.com/it/speakers/beosound-35\",\"caption\":\"https://www.bang-olufsen.com/it/speakers/beosound-35\"},{\"value\":\"https://www.bang-olufsen.com/it/speakers/beosound-shape\",\"caption\":\"https://www.bang-olufsen.com/it/speakers/beosound-shape\"}],\"exclude\":[]}",
+          "id": "76652428"
+        }
+      ]
+    },
+    {
+      "groupAnd": true,
+      "conditionAnd": false,
+      "conditions": []
+    }
+  ]
+},
+"bot": {},
+"steps": {
+  "form": {
+    "name": "form",
+    "attach": {
+      "desktop": "left",
+      "mobile": "left"
+    },
+    "distanceFromEdge": {
+      "desktop": 10,
+      "mobile": 0
+    },
+    "relativeWidth": {
+      "desktop": 0,
+      "mobile": 100
+    }
+  },
+  "teaser": {
+    "name": "teaser",
+    "attach": {
+      "desktop": "left",
+      "mobile": "left"
+    },
+    "distanceFromEdge": {
+      "desktop": 10,
+      "mobile": 10
+    },
+    "relativeWidth": {
+      "desktop": 0,
+      "mobile": 50
+    }
+  },
+  "success": {
+    "name": "success",
+    "attach": {
+      "desktop": "left",
+      "mobile": "left"
+    },
+    "distanceFromEdge": {
+      "desktop": 10,
+      "mobile": 0
+    },
+    "relativeWidth": {
+      "desktop": 0,
+      "mobile": 100
+    }
+  }
+},
+"Hostname": "www.bang-olufsen.com",
+"goalTracking": [],
+"advOptions": [],
+SleekNoteDesktopURL: "//sleeknotestaticcontent.sleeknote.com/editorv2/desktoptoggler/9445bf34-e827-4b31-8d56-af0bc67ecdc1.html",
+SleekNoteDesktopTeaserURL: "//sleeknotestaticcontent.sleeknote.com/editorv2/desktopteaser/9445bf34-e827-4b31-8d56-af0bc67ecdc1.html",
+SleekNoteMobileURL: "//sleeknotestaticcontent.sleeknote.com/editorv2/mobiletoggler/9445bf34-e827-4b31-8d56-af0bc67ecdc1.html",
+SleekNoteMobileTeaserURL: "//sleeknotestaticcontent.sleeknote.com/editorv2/mobileteaser/9445bf34-e827-4b31-8d56-af0bc67ecdc1.html"
+}
+];
+var j = document.createElement('script');
+j.type = 'text/javascript'; 
+j.src = '//sleeknotestaticcontent.sleeknote.com/core.js'
+j.charset = 'utf-8';
+d.body.appendChild(j);
+}
+}
+d.readyState == 'complete' ? b() : w[l]('load', b)
+})(window, 'addEventListener', 'SleekNote');

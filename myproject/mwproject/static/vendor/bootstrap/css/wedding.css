@@ -1,0 +1,30 @@
+body{
+			background-color: #E5E9E5;
+		}
+		#nav{
+			background-color: #E5E9E5;
+			color: red;
+			border: 0px solid red;
+		}
+		ul li {
+			margin-left:250px;
+		}
+		#heart{
+			background-image: url('images/heart.jpg');
+		}
+
+		.nav2 ul li{
+		color: #CC908A;
+		margin-left:70px;
+	}
+
+	#nav a {
+		color: #333333;
+		font-size: 20px;
+		font-family: OpenSans-ExtraBold;
+		text-decoration: none;
+	}
+
+	#nav a:hover{
+		color: #CC908A;
+	}

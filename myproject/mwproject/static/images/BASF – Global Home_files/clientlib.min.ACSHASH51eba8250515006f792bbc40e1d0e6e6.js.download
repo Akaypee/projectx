@@ -1,0 +1,1 @@
+$(document).on("DOMContentLoaded",function(){$.ajax({url:"//tags.tiqcdn.com/utag/basf/"+jQuery("[data-tealium]").data("profile")+"/"+jQuery("[data-tealium]").data("tealium")+"/utag.js",dataType:"script",cache:!0})});
